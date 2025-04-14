@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Caretaker Momen</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+    <style>
+      .fade-in {
+        animation: fadeIn 1s ease-in-out;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100 text-gray-900 transition-colors duration-300" id="body">
+    <!-- Loading Screen -->
+    <div
+      id="loading"
+      class="fixed inset-0 flex items-center justify-center bg-black z-50 text-4xl font-bold text-yellow-400 animate-pulse"
+    >
+      CARETAKER MOMEN
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed top-4 right-4 z-50 hidden bg-green-500 text-white px-4 py-2 rounded shadow"></div>
+
+    <!-- Dark Mode Toggle -->
+    <button onclick="toggleDarkMode()" class="fixed top-4 left-4 z-50 bg-gray-300 dark:bg-gray-700 text-black dark:text-white px-3 py-1 rounded">
+      Dark Mode
+    </button>
+
+    <!-- Nickname Section -->
+    <div id="nickname-section" class="hidden min-h-screen flex flex-col items-center justify-center px-4 fade-in">
+      <h2 class="text-2xl mb-4">Masukkan Nickname Unik Anda:</h2>
+      <input
+        type="text"
+        id="nickname"
+        placeholder="Nickname unik..."
+        class="p-2 border rounded w-full max-w-sm mb-4"
+      />
+      <button
+        onclick="saveNickname()"
+        class="bg-yellow-400 text-white px-4 py-2 rounded shadow"
+      >
+        Lanjut
+      </button>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="hidden max-w-2xl mx-auto px-4 pt-8 fade-in">
+      <!-- Upload Form -->
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 mb-6">
+        <h3 class="text-xl font-bold mb-2">Upload Video</h3>
+        <input type="file" id="videoFile" accept="video/*" class="mb-2" />
+        <input
+          type="text"
+          id="videoDesc"
+          placeholder="Deskripsi video"
+          class="p-2 border rounded w-full mb-2"
+        />
+        <button
+          onclick="uploadVideo()"
+          class="bg-yellow-400 text-white px-4 py-2 rounded shadow"
+        >
+          Upload
+        </button>
+        <p id="uploadStatus" class="text-sm mt-2"></p>
+      </div>
+
+      <!-- Video Feed -->
+      <div id="videoFeed"></div>
+    </div>
+
+    <script>
+      const supabase = supabase.createClient(
+        'https://yifqmlnnpvwavzuqyegk.supabase.co',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpZnFtbG5ucHZ3YXZ6dXF5ZWdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ2MzgzOTMsImV4cCI6MjA2MDIxNDM5M30.TOBXFMUjAkSYyEeQot61fZlJRT7-gzcrMBlDrPFkFZU'
+      );
+
+      const loading = document.getElementById('loading');
+      const nicknameSection = document.getElementById('nickname-section');
+      const app = document.getElementById('app');
+      const toast = document.getElementById('toast');
+      let userNickname = localStorage.getItem('nickname');
+
+      setTimeout(() => {
+        loading.classList.add('hidden');
+        if (!userNickname) {
+          nicknameSection.classList.remove('hidden');
+        } else {
+          app.classList.remove('hidden');
+          loadVideos();
+        }
+      }, 5000);
+
+      function showToast(message) {
+        toast.innerText = message;
+        toast.classList.remove('hidden');
+        setTimeout(() => toast.classList.add('hidden'), 3000);
+      }
+
+      function saveNickname() {
+        const input = document.getElementById('nickname').value.trim();
+        if (input) {
+          userNickname = input;
+          localStorage.setItem('nickname', input);
+          nicknameSection.classList.add('hidden');
+          app.classList.remove('hidden');
+          loadVideos();
+        }
+      }
+
+      async function uploadVideo() {
+        const file = document.getElementById('videoFile').files[0];
+        const desc = document.getElementById('videoDesc').value.trim();
+        const status = document.getElementById('uploadStatus');
+        if (!file) return alert('Pilih video dulu!');
+
+        status.innerText = 'Uploading...';
+        const filePath = `${Date.now()}-${file.name}`;
+        const { error } = await supabase.storage.from('videos').upload(filePath, file);
+        if (error) {
+          status.innerText = '';
+          return alert('Upload gagal');
+        }
+
+        const url = supabase.storage.from('videos').getPublicUrl(filePath).data.publicUrl;
+        await supabase.from('videos').insert({ nickname: userNickname, description: desc, video_url: url });
+
+        document.getElementById('videoFile').value = '';
+        document.getElementById('videoDesc').value = '';
+        status.innerText = '';
+        showToast('Upload berhasil!');
+        loadVideos();
+      }
+
+      async function loadVideos() {
+        const { data: videos } = await supabase.from('videos').select('*').order('created_at', { ascending: false });
+        const container = document.getElementById('videoFeed');
+        container.innerHTML = '';
+
+        for (const vid of videos) {
+          const { data: comments } = await supabase.from('comments').select('*').eq('video_id', vid.id).order('created_at');
+          const commentCount = comments.length;
+          const createdAt = new Date(vid.created_at).toLocaleString();
+
+          const card = document.createElement('div');
+          card.className = 'bg-white dark:bg-gray-800 p-4 rounded-xl shadow hover:shadow-lg transition-shadow duration-300 mb-6 fade-in';
+          card.innerHTML = `
+            <h4 class="font-bold">${vid.nickname}</h4>
+            <video controls src="${vid.video_url}" class="w-full rounded mb-2"></video>
+            <p>${vid.description}</p>
+            <p class="text-xs text-gray-500">${createdAt}</p>
+            <button onclick="likeVideo('${vid.id}')" class="mt-2 bg-pink-500 text-white px-3 py-1 rounded">
+              Like (${vid.likes || 0})
+            </button>
+            <div class="mt-2 text-sm text-gray-600">${commentCount} Komentar</div>
+            <div class="mt-2">
+              <input type="text" placeholder="Komentar..." class="border rounded px-2 py-1 w-full" onkeypress="if(event.key==='Enter')commentVideo('${vid.id}', this)">
+            </div>
+            <div class="mt-2 text-sm space-y-1">
+              ${comments.map(c => `<p><b>${c.nickname}:</b> ${c.text}</p>`).join('')}
+            </div>
+          `;
+          container.appendChild(card);
+        }
+      }
+
+      async function likeVideo(id) {
+        const { data: video } = await supabase.from('videos').select('likes').eq('id', id).single();
+        await supabase.from('videos').update({ likes: (video.likes || 0) + 1 }).eq('id', id);
+        showToast('Disukai!');
+        loadVideos();
+      }
+
+      async function commentVideo(id, input) {
+        const text = input.value.trim();
+        if (!text) return;
+        await supabase.from('comments').insert({ video_id: id, nickname: userNickname, text });
+        input.value = '';
+        showToast('Komentar ditambahkan!');
+        loadVideos();
+      }
+
+      function toggleDarkMode() {
+        document.getElementById('body').classList.toggle('dark');
+      }
+    </script>
+  </body>
+</html>
+
